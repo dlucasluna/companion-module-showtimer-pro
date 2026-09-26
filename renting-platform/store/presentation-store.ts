@@ -13,9 +13,13 @@ export interface PresentationState {
 
 function writeCookie(active: boolean) {
   if (typeof document === "undefined") return;
-  document.cookie = active
-    ? `${PRESENTATION_COOKIE}=1; path=/; SameSite=Lax`
-    : `${PRESENTATION_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`;
+  try {
+    document.cookie = active
+      ? `${PRESENTATION_COOKIE}=1; path=/; SameSite=Lax`
+      : `${PRESENTATION_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`;
+  } catch {
+    // Sandboxed frames can refuse cookies; client mode still works for this page load.
+  }
 }
 
 export function createPresentationStore(initial: boolean) {

@@ -16,7 +16,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "setup": "prisma migrate deploy && prisma db seed"
+    "setup": "prisma migrate deploy && prisma db seed",
+    "build:artifact": "node artifact/build.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -42,8 +43,10 @@
     "@types/node": "^22.20.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "html-to-image": "^1.11.13",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",

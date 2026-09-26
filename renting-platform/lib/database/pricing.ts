@@ -1,4 +1,4 @@
-import type { PricingRule, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import {
   catalogKey,
   costKindForType,
@@ -6,55 +6,15 @@ import {
   type CommercialDefaults,
   type PricingCatalog,
   type PricingContext,
-  type PricingRuleOverrides,
   type PricingRules,
 } from "@/lib/pricing";
+import { commercialDefaults, ruleOverrides } from "@/lib/pricing/rule-records";
 import { prisma } from "./prisma";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-const FALLBACK_DEFAULTS: CommercialDefaults = {
-  contractMonths: 24,
-  upfrontPercent: 0.3,
-  pricesIncludeVat: false,
-  allowedContractMonths: [12, 24, 36, 48],
-};
-
-function toOverrides(rule: PricingRule | null | undefined): PricingRuleOverrides {
-  if (!rule) return {};
-  return {
-    targetMultiplier: rule.targetMultiplier,
-    riskReservePercent: rule.riskReservePercent,
-    maintenanceReservePercent: rule.maintenanceReservePercent,
-    defaultResidualPercent: rule.defaultResidualPercent,
-    residualCreditPercent: rule.residualCreditPercent,
-    vatRate: rule.vatRate,
-    minMarginPercent: rule.minMarginPercent,
-    roundMonthlyTo: rule.roundMonthlyTo,
-    roundUpfrontTo: rule.roundUpfrontTo,
-  };
-}
-
-function parseMonths(value: string | null | undefined): number[] | null {
-  if (!value) return null;
-  const months = value
-    .split(",")
-    .map((part) => Number.parseInt(part.trim(), 10))
-    .filter((n) => Number.isInteger(n) && n > 0);
-  return months.length ? months : null;
-}
-
-function toDefaults(...rules: (PricingRule | null | undefined)[]): CommercialDefaults {
-  const defaults = { ...FALLBACK_DEFAULTS };
-  for (const rule of rules) {
-    if (!rule) continue;
-    defaults.contractMonths = rule.defaultContractMonths ?? defaults.contractMonths;
-    defaults.upfrontPercent = rule.defaultUpfrontPercent ?? defaults.upfrontPercent;
-    defaults.pricesIncludeVat = rule.pricesIncludeVat ?? defaults.pricesIncludeVat;
-    defaults.allowedContractMonths = parseMonths(rule.allowedContractMonths) ?? defaults.allowedContractMonths;
-  }
-  return defaults;
-}
+const toOverrides = ruleOverrides;
+const toDefaults = commercialDefaults;
 
 export interface ResolvedPricingRules {
   rules: PricingRules;

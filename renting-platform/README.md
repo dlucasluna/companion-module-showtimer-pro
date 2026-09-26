@@ -19,8 +19,9 @@ Configurador comercial para montar sistemas audiovisuais para igrejas **ao vivo,
 9. [Funcionalidades](#funcionalidades)
 10. [Testes](#testes)
 11. [Deploy](#deploy)
-12. [Decisões tomadas](#decisões-tomadas)
-13. [Preparado para o futuro / próximos passos](#preparado-para-o-futuro--próximos-passos)
+12. [Versão Claude Artifact (demo por link)](#versão-claude-artifact-demo-por-link)
+13. [Decisões tomadas](#decisões-tomadas)
+14. [Preparado para o futuro / próximos passos](#preparado-para-o-futuro--próximos-passos)
 
 ---
 
@@ -207,6 +208,16 @@ Se o Playwright pedir browsers, use `npx playwright install chromium` ou aponte 
 - **Vercel / Node server**: `npm run build && npm start`. Configure `DATABASE_URL` (PostgreSQL gerido: Neon, Supabase, RDS…), `SESSION_SECRET`, `DEMO_MODE=false`, e corra `npx prisma migrate deploy` no pipeline.
 - SQLite serve para desenvolvimento/demo num único servidor; em serverless use PostgreSQL.
 - Imagens de produtos: `public/products/*.svg` (ilustrações próprias). Para fotos reais, adicione ficheiros e escolha-os no editor de produto.
+
+## Versão Claude Artifact (demo por link)
+
+`npm run build:artifact` gera `artifact/dist/index.html`: uma única página que corre **os mesmos componentes, motor de preços e projeção comercial** no browser, publicada como Claude Artifact (abre por link, sem instalar nada).
+
+- `artifact/src/actions/*` substituem as server actions (`@/lib/actions/*`) por versões no browser com as mesmas verificações de permissão; `artifact/src/actions/conformance.ts` garante em compile time que as assinaturas coincidem.
+- `artifact/src/shims/*` substituem `next/navigation`, `next/link` e `next/image` (router em memória, imagens embutidas).
+- Dados: base de dados do próprio artifact (`db`), com fallback para `localStorage` e memória. `artifact/dist/seed-docs.json` contém os documentos de demonstração; a página também semeia sozinha quando a base está vazia. Em **Configurações → Dados** é possível repor a demo.
+- PDF: cada folha A4 é renderizada (html-to-image), cortada entre blocos e escrita num PDF mínimo, entregue pela capability `downloads` (`window.print()` não funciona dentro do artifact).
+- Diferenças face à versão servidor: sem link público `/p/…` (envio por WhatsApp/mensagem com o PDF em anexo), e como tudo corre no browser os perfis demo separam a interface por função, mas não isolam dados como o servidor faz. Para dados reais de clientes use a versão Next.js.
 
 ## Decisões tomadas
 
