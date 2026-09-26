@@ -27,9 +27,17 @@ export function CategoryNav() {
     return () => observer.disconnect();
   }, [categories]);
 
+  // Centre the active pill by scrolling the pill row only. scrollIntoView would
+  // also scroll the page (to the sticky nav's original position), yanking the
+  // seller back up while they scroll down.
   useEffect(() => {
-    const pill = listRef.current?.querySelector<HTMLElement>(`[data-slug="${active}"]`);
-    pill?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    const list = listRef.current;
+    const pill = list?.querySelector<HTMLElement>(`[data-slug="${active}"]`);
+    if (!list || !pill) return;
+    const listRect = list.getBoundingClientRect();
+    const pillRect = pill.getBoundingClientRect();
+    const delta = pillRect.left - listRect.left - (listRect.width - pillRect.width) / 2;
+    if (Math.abs(delta) > 1) list.scrollBy({ left: delta, behavior: "smooth" });
   }, [active]);
 
   return (
