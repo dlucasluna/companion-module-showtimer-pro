@@ -1,0 +1,699 @@
+// ChurchTech Rent — data model
+//
+// Conventions
+// - Money is stored as integer cents (EUR). Percentages are fractions (0.3 = 30%).
+// - Every business entity carries companyId so the platform can become multi-tenant.
+// - SQLite in development; switch `provider` to "postgresql" for production
+//   (see README → Banco de dados).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  SALES
+  TECHNICIAN
+  FINANCE
+  VIEWER
+  CLIENT
+}
+
+enum ProductType {
+  HARDWARE
+  SERVICE
+  INSTALLATION
+  SUPPORT
+  SOFTWARE
+  LICENSE
+  CONSUMABLE
+}
+
+enum ClientStatus {
+  LEAD
+  PROSPECT
+  ACTIVE
+  INACTIVE
+}
+
+enum ProposalStatus {
+  DRAFT
+  PRESENTED
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum ProposalKind {
+  NEW
+  UPGRADE
+  RENEWAL
+}
+
+enum ContractStatus {
+  AWAITING_SIGNATURE
+  AWAITING_INSTALLATION
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+enum AssetStatus {
+  STOCK
+  INSTALLED
+  MAINTENANCE
+  RESERVED
+  DAMAGED
+  RETIRED
+}
+
+enum PlanKind {
+  PRESET
+  TEMPLATE
+}
+
+enum PricingScope {
+  GLOBAL
+  PLAN
+}
+
+enum AdjustmentMode {
+  PERCENT
+  AMOUNT
+}
+
+enum SignatureMethod {
+  DRAWN
+  TYPED
+  EXTERNAL
+}
+
+enum DeliveryMode {
+  REMOTE
+  ONSITE
+  HYBRID
+}
+
+// ─── Tenant & users ─────────────────────────────────────────────────────────
+
+model Company {
+  id                   String   @id @default(cuid())
+  name                 String
+  legalName            String?
+  taxId                String?
+  email                String?
+  phone                String?
+  website              String?
+  address              String?
+  city                 String?
+  postalCode           String?
+  country              String   @default("PT")
+  locale               String   @default("pt-PT")
+  currency             String   @default("EUR")
+  logoUrl              String?
+  tagline              String?
+  proposalPrefix       String   @default("PRP")
+  contractPrefix       String   @default("CTR")
+  proposalValidityDays Int      @default(30)
+  proposalTerms        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  users             User[]
+  clients           Client[]
+  suppliers         Supplier[]
+  categories        ProductCategory[]
+  products          Product[]
+  supportPlans      SupportPlan[]
+  pricingRules      PricingRule[]
+  paymentConditions PaymentCondition[]
+  plans             Plan[]
+  proposals         Proposal[]
+  contracts         Contract[]
+  assets            Asset[]
+  auditLogs         AuditLog[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(SALES)
+  title        String?
+  active       Boolean   @default(true)
+  /// Client portal users (role CLIENT) are linked to a client.
+  clientId     String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company          Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client           Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  proposalsCreated Proposal[] @relation("ProposalCreatedBy")
+  proposalsUpdated Proposal[] @relation("ProposalUpdatedBy")
+  plansCreated     Plan[]
+  auditLogs        AuditLog[]
+
+  @@index([companyId])
+}
+
+// ─── CRM ────────────────────────────────────────────────────────────────────
+
+model Client {
+  id                String       @id @default(cuid())
+  companyId         String
+  name              String
+  legalName         String?
+  taxId             String?
+  email             String?
+  phone             String?
+  website           String?
+  address           String?
+  city              String?
+  postalCode        String?
+  country           String       @default("PT")
+  status            ClientStatus @default(LEAD)
+  notes             String?
+  lastInteractionAt DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contacts    Contact[]
+  proposals   Proposal[]
+  contracts   Contract[]
+  assets      Asset[]
+  portalUsers User[]
+
+  @@index([companyId, status])
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  clientId  String
+  name      String
+  role      String?
+  email     String?
+  phone     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  email     String?
+  phone     String?
+  website   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products Product[]
+  assets   Asset[]
+}
+
+// ─── Catalog ────────────────────────────────────────────────────────────────
+
+model ProductCategory {
+  id          String  @id @default(cuid())
+  companyId   String
+  name        String
+  slug        String
+  description String?
+  /// Lucide icon name used by the configurator navigation.
+  icon        String?
+  sortOrder   Int     @default(0)
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([companyId, slug])
+}
+
+model Product {
+  id                     String      @id @default(cuid())
+  companyId              String
+  categoryId             String
+  supplierId             String?
+  name                   String
+  slug                   String
+  sku                    String
+  type                   ProductType @default(HARDWARE)
+  brand                  String?
+  model                  String?
+  /// Short description shown on configurator cards.
+  description            String?
+  /// Longer commercial copy used in proposals.
+  salesDescription       String?
+  /// One-line customer benefit shown on cards ("Imagem nítida em qualquer ângulo").
+  benefit                String?
+  /// Internal purchase cost in cents — never exposed to CLIENT views.
+  internalCost           Int
+  /// Reference retail price in cents (informational).
+  referencePrice         Int?
+  /// Minimum residual value fraction at contract end.
+  defaultResidualPercent Float?
+  warrantyMonths         Int?
+  expectedLifeMonths     Int?
+  imageUrl               String?
+  notes                  String?
+  defaultQuantity        Int         @default(1)
+  maxQuantity            Int?
+  unitLabel              String?
+  active                 Boolean     @default(true)
+  sortOrder              Int         @default(0)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category            ProductCategory      @relation(fields: [categoryId], references: [id])
+  supplier            Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  variants            ProductVariant[]
+  service             Service?
+  installationService InstallationService?
+  planItems           PlanItem[]
+  proposalItems       ProposalItem[]
+  contractItems       ContractItem[]
+  assets              Asset[]
+
+  @@unique([companyId, sku])
+  @@unique([companyId, slug])
+  @@index([companyId, categoryId, active])
+}
+
+/// Variants of a product family (PTZ → Standard, NDI, 4K…). Each has its own cost.
+model ProductVariant {
+  id                 String   @id @default(cuid())
+  productId          String
+  name               String
+  sku                String
+  description        String?
+  benefit            String?
+  internalCost       Int
+  referencePrice     Int?
+  residualPercent    Float?
+  expectedLifeMonths Int?
+  /// JSON object of technical attributes (transport, resolution…).
+  attributes         Json?
+  imageUrl           String?
+  isDefault          Boolean  @default(false)
+  active             Boolean  @default(true)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  planItems     PlanItem[]
+  proposalItems ProposalItem[]
+  contractItems ContractItem[]
+  assets        Asset[]
+
+  @@unique([productId, sku])
+}
+
+/// Service-specific details for products of type SERVICE / SOFTWARE / SUPPORT.
+model Service {
+  id            String       @id @default(cuid())
+  productId     String       @unique
+  deliveryMode  DeliveryMode @default(ONSITE)
+  durationHours Float?
+  recurring     Boolean      @default(false)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+/// Installation-specific details for products of type INSTALLATION.
+model InstallationService {
+  id                String  @id @default(cuid())
+  productId         String  @unique
+  estimatedHours    Float
+  technicians       Int     @default(1)
+  requiresSiteVisit Boolean @default(true)
+  travelIncluded    Boolean @default(true)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model SupportPlan {
+  id                String   @id @default(cuid())
+  companyId         String
+  name              String
+  slug              String
+  description       String?
+  /// JSON array of feature strings.
+  features          Json?
+  /// Internal monthly cost in cents.
+  monthlyCost       Int
+  /// Commercial monthly price in cents (added to the mensalidade).
+  monthlyPrice      Int
+  responseTimeHours Int?
+  onSite            Boolean  @default(false)
+  isDefault         Boolean  @default(false)
+  active            Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plans     Plan[]
+  proposals Proposal[]
+  contracts Contract[]
+
+  @@unique([companyId, slug])
+}
+
+// ─── Pricing ────────────────────────────────────────────────────────────────
+
+/// GLOBAL rule holds every value; PLAN rules override only non-null fields.
+model PricingRule {
+  id                        String       @id @default(cuid())
+  companyId                 String
+  scope                     PricingScope @default(GLOBAL)
+  planId                    String?      @unique
+  targetMultiplier          Float?
+  defaultUpfrontPercent     Float?
+  defaultContractMonths     Int?
+  riskReservePercent        Float?
+  maintenanceReservePercent Float?
+  defaultResidualPercent    Float?
+  residualCreditPercent     Float?
+  vatRate                   Float?
+  minMarginPercent          Float?
+  pricesIncludeVat          Boolean?
+  roundMonthlyTo            Int?
+  roundUpfrontTo            Int?
+  /// Comma separated list of allowed terms ("12,24,36,48").
+  allowedContractMonths     String?
+  createdAt                 DateTime     @default(now())
+  updatedAt                 DateTime     @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan?   @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, scope])
+}
+
+/// Reusable commercial conditions ("24 meses · 30% entrada").
+model PaymentCondition {
+  id              String   @id @default(cuid())
+  companyId       String
+  name            String
+  description     String?
+  contractMonths  Int
+  upfrontPercent  Float
+  discountPercent Float    @default(0)
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// Presets (Broadcast Start/Pro/Premium) and seller templates.
+model Plan {
+  id             String   @id @default(cuid())
+  companyId      String
+  name           String
+  slug           String
+  kind           PlanKind @default(PRESET)
+  tagline        String?
+  description    String?
+  highlight      String?
+  supportPlanId  String?
+  contractMonths Int?
+  upfrontPercent Float?
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supportPlan SupportPlan? @relation(fields: [supportPlanId], references: [id], onDelete: SetNull)
+  createdBy   User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  items       PlanItem[]
+  pricingRule PricingRule?
+  proposals   Proposal[]
+
+  @@unique([companyId, slug])
+}
+
+model PlanItem {
+  id        String  @id @default(cuid())
+  planId    String
+  productId String
+  variantId String?
+  quantity  Int     @default(1)
+  sortOrder Int     @default(0)
+
+  plan    Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+}
+
+// ─── Proposals ──────────────────────────────────────────────────────────────
+
+model Proposal {
+  id             String         @id @default(cuid())
+  companyId      String
+  proposalNumber String
+  title          String         @default("Sistema Broadcast")
+  status         ProposalStatus @default(DRAFT)
+  kind           ProposalKind   @default(NEW)
+  clientId       String
+  /// Responsible person (pastor) snapshot.
+  contactName    String?
+  planId         String?
+  supportPlanId  String?
+  /// For UPGRADE/RENEWAL proposals: the contract being amended.
+  contractId     String?
+
+  // Commercial conditions (inputs)
+  contractMonths   Int
+  upfrontMode      AdjustmentMode @default(PERCENT)
+  upfrontValue     Float
+  discountMode     AdjustmentMode @default(PERCENT)
+  discountValue    Float          @default(0)
+  monthlyOverride  Int?
+  targetMargin     Float?
+  pricesIncludeVat Boolean        @default(false)
+  vatRate          Float
+
+  // Pricing snapshot (outputs, cents) — recomputed on the server on every save
+  initialPayment  Int   @default(0)
+  monthlyPayment  Int   @default(0)
+  internalCost    Int   @default(0)
+  targetRevenue   Int   @default(0)
+  contractRevenue Int   @default(0)
+  grossProfit     Int   @default(0)
+  grossMargin     Float @default(0)
+  markup          Float @default(0)
+  breakEvenMonth  Int?
+  residualValue   Int   @default(0)
+  discountAmount  Int   @default(0)
+  /// Pricing rules used for the snapshot.
+  pricingSnapshot Json?
+
+  notes         String?
+  internalNotes String?
+  /// Opaque token for the client-facing share link (/p/[token]).
+  publicToken   String    @unique
+  validUntil    DateTime
+  presentedAt   DateTime?
+  sentAt        DateTime?
+  viewedAt      DateTime?
+  acceptedAt    DateTime?
+  rejectedAt    DateTime?
+  createdById   String?
+  updatedById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company           Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client            Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  plan              Plan?               @relation(fields: [planId], references: [id], onDelete: SetNull)
+  supportPlan       SupportPlan?        @relation(fields: [supportPlanId], references: [id], onDelete: SetNull)
+  contract          Contract?           @relation("ProposalAmends", fields: [contractId], references: [id], onDelete: SetNull)
+  createdBy         User?               @relation("ProposalCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy         User?               @relation("ProposalUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  items             ProposalItem[]
+  signatures        ProposalSignature[]
+  resultingContract Contract?           @relation("ContractFromProposal")
+
+  @@unique([companyId, proposalNumber])
+  @@index([companyId, status])
+  @@index([clientId])
+}
+
+model ProposalItem {
+  id                      String      @id @default(cuid())
+  proposalId              String
+  productId               String
+  variantId               String?
+  quantity                Int
+  /// Cost snapshot in cents at save time — internal only.
+  internalUnitCost        Int
+  internalTotal           Int
+  displayName             String
+  description             String?
+  categoryName            String?
+  productType             ProductType
+  /// Marginal monthly impact in cents (commercial, safe to show).
+  commercialMonthlyImpact Int         @default(0)
+  sortOrder               Int         @default(0)
+
+  proposal Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  product  Product         @relation(fields: [productId], references: [id])
+  variant  ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([proposalId])
+}
+
+/// Prepared for external e-signature providers (provider/externalId).
+model ProposalSignature {
+  id            String          @id @default(cuid())
+  proposalId    String
+  signerName    String
+  signerEmail   String?
+  signerRole    String?
+  method        SignatureMethod @default(DRAWN)
+  /// PNG data URL of a drawn signature.
+  imageData     String?
+  acceptedTerms Boolean         @default(false)
+  signedAt      DateTime        @default(now())
+  ipAddress     String?
+  userAgent     String?
+  provider      String?
+  externalId    String?
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
+
+// ─── Contracts & assets ─────────────────────────────────────────────────────
+
+model Contract {
+  id               String         @id @default(cuid())
+  companyId        String
+  contractNumber   String
+  clientId         String
+  proposalId       String?        @unique
+  supportPlanId    String?
+  status           ContractStatus @default(AWAITING_SIGNATURE)
+  startDate        DateTime?
+  endDate          DateTime?
+  contractMonths   Int
+  initialPayment   Int
+  monthlyPayment   Int
+  vatRate          Float
+  internalCost     Int            @default(0)
+  grossMargin      Float          @default(0)
+  /// Upgrades/renewals keep a chain of versions.
+  parentContractId String?
+  version          Int            @default(1)
+  signedAt         DateTime?
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  proposal       Proposal?      @relation("ContractFromProposal", fields: [proposalId], references: [id], onDelete: SetNull)
+  supportPlan    SupportPlan?   @relation(fields: [supportPlanId], references: [id], onDelete: SetNull)
+  parentContract Contract?      @relation("ContractVersions", fields: [parentContractId], references: [id], onDelete: SetNull)
+  childContracts Contract[]     @relation("ContractVersions")
+  amendments     Proposal[]     @relation("ProposalAmends")
+  items          ContractItem[]
+  assets         Asset[]
+
+  @@unique([companyId, contractNumber])
+  @@index([companyId, status])
+}
+
+model ContractItem {
+  id               String  @id @default(cuid())
+  contractId       String
+  productId        String
+  variantId        String?
+  quantity         Int
+  displayName      String
+  internalUnitCost Int
+  /// Contract version that added / removed this line (upgrade history).
+  addedInVersion   Int     @default(1)
+  removedInVersion Int?
+
+  contract Contract        @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  product  Product         @relation(fields: [productId], references: [id])
+  variant  ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+}
+
+/// A physical, serialised piece of equipment.
+model Asset {
+  id            String      @id @default(cuid())
+  companyId     String
+  productId     String
+  variantId     String?
+  supplierId    String?
+  clientId      String?
+  contractId    String?
+  assetTag      String
+  serialNumber  String?
+  status        AssetStatus @default(STOCK)
+  purchaseDate  DateTime?
+  purchaseCost  Int
+  warrantyUntil DateTime?
+  location      String?
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product  Product         @relation(fields: [productId], references: [id])
+  variant  ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  supplier Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  client   Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  contract Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, assetTag])
+  @@index([companyId, status])
+}
+
+// ─── Audit ──────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String
+  userId     String?
+  entityType String
+  entityId   String
+  action     String
+  summary    String
+  changes    Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, entityType, entityId])
+}
